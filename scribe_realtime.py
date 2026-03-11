@@ -1,4 +1,5 @@
 import threading, pyaudio, json, base64, websockets, asyncio, time
+from websockets.exceptions import ConnectionClosedOK
 import tkinter as tk
 import ctypes
 import re
@@ -45,7 +46,8 @@ def get_ime_status():
         imm32 = ctypes.windll.imm32
         handle = imm32.ImmGetDefaultIMEWnd(hwnd)
         return ctypes.windll.user32.SendMessageW(handle, 0x0283, 0x0005, 0)
-    except: return 0
+    except Exception:
+        return 0
 
 def toggle_ime():
     with kb_controller.pressed(keyboard.Key.shift):
@@ -108,7 +110,12 @@ async def run_scribe():
                             final_delta = clean_text[typed_len:]
                             kb_controller.type(final_delta + " ")
                             typed_len = 0
-                    except: break
+                    except ConnectionClosedOK:
+                        break
+                    except Exception as e:
+                        if is_recording:
+                            print(f"Receive error: {e}")
+                        break
 
             async def send_audio():
                 while is_recording:
@@ -116,7 +123,12 @@ async def run_scribe():
                         chunk = stream.read(1024, exception_on_overflow=False)
                         await ws.send(json.dumps({"message_type": "input_audio_chunk", "audio_base_64": base64.b64encode(chunk).decode("utf-8")}))
                         await asyncio.sleep(0.01)
-                    except: break
+                    except ConnectionClosedOK:
+                        break
+                    except Exception as e:
+                        if is_recording:
+                            print(f"Send error: {e}")
+                        break
 
             await asyncio.gather(send_audio(), receive_text())
             stream.stop_stream(); stream.close(); p.terminate()
